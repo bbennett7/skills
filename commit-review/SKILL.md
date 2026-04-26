@@ -33,7 +33,25 @@ When the user corrects a grouping decision, save their preference as a feedback 
 
 ## Flow
 
-### 1. Gather context
+### 0. Check current branch
+
+Run `git branch --show-current` to get the current branch name.
+
+If the current branch is `main`:
+- Ask the user if they'd like to check out a new branch before committing
+- Propose a branch name based on the staged/unstaged changes (e.g. `feat/add-speed-slider` or `fix/auth-redirect`)
+- If the user says yes, run `git checkout -b <proposed-name>` (or the name they provide)
+- If the user says no, continue on `main`
+
+### 1. Lint all files
+
+Run the `/lint` skill to lint all changed files. If linting fails:
+- Show the errors to the user
+- Ask if they want to fix the errors before continuing
+- If yes, fix them, re-run lint to confirm clean, then proceed
+- If no, proceed anyway but note the outstanding lint errors
+
+### 2. Gather context
 
 Run these commands in parallel:
 
@@ -41,11 +59,11 @@ Run these commands in parallel:
 - `git diff` and `git diff --staged` to see all changes
 - `git log --oneline -10` to match recent commit style
 
-### 2. Group changes
+### 3. Group changes
 
 Apply the grouping rules above to produce an ordered list of commit groups.
 
-### 3. Present the overall plan
+### 4. Present the overall plan
 
 Show a numbered overview of all proposed commits:
 
@@ -63,7 +81,7 @@ Proposed commits (in order):
 
 Ask if the overall grouping and order looks right before starting the walkthrough. The user can reorder, merge, or split groups at this point.
 
-### 4. Walk through each group
+### 5. Walk through each group
 
 **CRITICAL: Process ONE group at a time. After each step, STOP and WAIT for the user's response. Never batch multiple commits in a single response.**
 
@@ -101,7 +119,7 @@ Commit message rules:
 
 3. Confirm success with `git status` before moving to the next group
 
-### 5. Summary
+### 6. Summary
 
 After walking through all groups, show:
 - Commits created (`git log --oneline` for the new commits)
