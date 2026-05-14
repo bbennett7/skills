@@ -1,49 +1,26 @@
 ---
 name: commit-review
-description: This skill should be used when the user wants to review and commit code changes. It groups changed files into focused logical commits and walks the user through each group interactively, allowing them to approve, skip, or request changes before committing.
+description: Groups all changed files into logical commits with recommended messages and ordering, then walks through each group one at a time — automatically staging each group after plan approval, prompting for commit confirmation or feedback, and auto-staging the next group after each commit. Use when you want to review and commit changes interactively.
+allowed-tools: Bash(git status), Bash(git diff *), Bash(git add *), Bash(git commit *), Bash(git restore --staged *), Bash(git log *)
 ---
 
 # Commit Review
 
-Interactive review-then-commit flow that groups changes logically and walks the user through each one.
+Walk through all changed files, group them into a recommended commit plan, then commit them one group at a time.
 
-## Grouping Rules
+## Phase 0 — Pre-flight checks
 
-Group changed files into the smallest focused commits that each represent a single logical unit of work. Check memory for any past feedback on grouping preferences before proposing groups.
+### 0a. Check current branch
 
-General principles:
-- One commit per concern: don't mix a new feature with a refactor or a config change
-- Files that are tightly coupled belong together (e.g., a component + its store change + its integration into a parent)
-- Plans, docs, and config changes get their own commits
-- New files that support the same feature can be grouped with related modifications
-- Prefer more smaller commits over fewer large ones
-- Order commits so earlier ones don't depend on later ones
-
-For each group, determine:
-- **Type**: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `style`, `ci`, `build`
-- **Scope**: area of code (e.g., `ui`, `ws`, `store`, `api`, `canvas`)
-- **Files**: exact list of files in this commit
-- **Message**: why, not just what
-
-Exclude files that should NOT be committed: `.env`, credentials, large binaries, `node_modules`, `__pycache__`
-
-## Learning from Feedback
-
-When the user corrects a grouping decision, save their preference as a feedback memory so it applies in future sessions.
-
-## Flow
-
-### 0. Check current branch
-
-Run `git branch --show-current` to get the current branch name.
-
-If the current branch is `main`:
+Run `git branch --show-current`. If the result is `main` or `develop`:
 - Ask the user if they'd like to check out a new branch before committing
-- Propose a branch name based on the staged/unstaged changes (e.g. `feat/add-speed-slider` or `fix/auth-redirect`)
-- If the user says yes, run `git checkout -b <proposed-name>` (or the name they provide)
-- If the user says no, continue on `main`
+- Propose a branch name derived from the staged/unstaged changes (e.g. `feat/add-speed-slider` or `fix/auth-redirect`)
+- If yes, run `git checkout -b <proposed-name>` (or the name they provide)
+- If no, continue on `main`/`develop`
 
-### 1. Lint all files
+After the branch is confirmed, extract the branch number: look for a leading or embedded integer in the branch name (e.g. `feat/123-add-auth` → `123`, `42-fix-bug` → `42`). Store this as `BRANCH_NUM`. If no number is found, `BRANCH_NUM` is unset.
+
+### 0b. Lint all files
 
 Run the `/lint` skill to lint all changed files. If linting fails:
 - Show the errors to the user
@@ -51,77 +28,121 @@ Run the `/lint` skill to lint all changed files. If linting fails:
 - If yes, fix them, re-run lint to confirm clean, then proceed
 - If no, proceed anyway but note the outstanding lint errors
 
-### 2. Gather context
+## Phase 1 — Discover changes
 
-Run these commands in parallel:
+Run the following in parallel to collect all changed files:
+- `git diff --name-status HEAD` — unstaged changes
+- `git diff --cached --name-status` — already-staged changes
+- `git status --short` — untracked files
 
-- `git status` (never use `-uall`)
-- `git diff` and `git diff --staged` to see all changes
-- `git log --oneline -10` to match recent commit style
+Merge the results into one flat list with no duplicates.
 
-### 3. Group changes
+## Phase 2 — Build the commit plan
 
-Apply the grouping rules above to produce an ordered list of commit groups.
+Analyse the full list and group files into logical commit groups. Each group must:
+- Represent a single, clear purpose expressible as one subject line
+- Be as small as possible while staying coherent
+- Use a conventional commit type: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`, `perf`, `ci`, `build`, `revert`
 
-### 4. Present the overall plan
+Message format: `type(optional-scope): description` — if `BRANCH_NUM` is set, append ` [#BRANCH_NUM]` to every commit message subject line (e.g. `feat(auth): add JWT middleware [#123]`).
 
-Show a numbered overview of all proposed commits:
+Order the groups so that foundational or dependency changes come before the things that depend on them (e.g. migrations before features, config before code that uses it).
+
+Present the full plan:
 
 ```
-Proposed commits (in order):
+Proposed commit plan
+────────────────────
+1. chore(config): add eslint configuration [#123]
+   · .eslintrc.json
+   · .eslintignore
 
-1. feat(store): add playbackSpeed state to useUIStore
-   Files: app/src/stores/useUIStore.ts
+2. feat(auth): add JWT middleware [#123]
+   · src/middleware/auth.ts
+   · src/middleware/auth.test.ts
 
-2. feat(ui): add SpeedSlider component and wire into header
-   Files: app/src/components/controls/SpeedSlider.tsx, app/src/components/layout/Header.tsx
+3. feat(user): add user profile endpoint [#123]
+   · src/routes/user.ts
+   · src/models/user.ts
 
-3. ...
+────────────────────────────────────────
+Order rationale: config first, then auth middleware that other routes depend on, then user routes that use that middleware.
 ```
 
-Ask if the overall grouping and order looks right before starting the walkthrough. The user can reorder, merge, or split groups at this point.
+Ask: **"Does this grouping and order look right? Suggest any changes, or say 'approve' to begin."**
 
-### 5. Walk through each group
+Wait for the user's response. Incorporate any requested changes and re-present until approved. Do not proceed to Phase 3 until the user explicitly approves.
 
-**CRITICAL: Process ONE group at a time. After each step, STOP and WAIT for the user's response. Never batch multiple commits in a single response.**
+## Phase 3 — Commit loop
 
-For each commit group, one at a time:
+Once the plan is approved, immediately stage the first group and enter the loop.
 
-**a) Stage the files** — Run `git add <specific files>` for this group only. Then show `git diff --cached --stat` so the user can see what's staged.
+### 3a. Stage the group and show it for review
 
-**b) Show the proposed commit message**
+1. Run `git restore --staged .` to clear any previously staged files
+2. Run `git add <files in this group>`
+3. Show the staged diff with `git diff --cached --name-status`
 
-**c) Tell the user the files are staged for review** — The user can inspect the staged diff in their IDE/terminal. Then STOP and WAIT for their response:
-- **Yes** — Commit the staged files as proposed
-- **Skip** — Unstage these files (`git reset HEAD <files>`), move to the next group
-- **Change** — The user describes what they want changed. Make the edits, re-stage, show updated `git diff --cached --stat`. Re-prompt.
-- **Question** — The user asks about the changes. Answer, then re-prompt.
-- **Discuss** — Open-ended discussion. When done, re-prompt.
+Then display:
 
-**IMPORTANT: After committing a group, STOP and WAIT for the user before moving to the next group. Do NOT stage the next group's files in the same response as the commit. Each group gets its own full cycle: stage → show message → wait → commit → wait → (next group).**
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Group 1 of 3 — staged and ready
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Files staged:
+  · src/middleware/auth.ts
+  · src/middleware/auth.test.ts
 
-When the user says "yes":
-1. Commit the already-staged files using a HEREDOC:
+Commit message:
+  feat(auth): add JWT middleware [#123]
 
-```bash
-git commit -m "$(cat <<'EOF'
-<type>(<scope>): <short description>
-
-<optional body explaining why, not what>
-EOF
-)"
+Reply 'commit' to commit, 'edit' to change the message, 'skip' to discard and move on, or give feedback.
 ```
 
-Commit message rules:
-- Subject line: imperative mood, no period, max 72 characters
-- Body is optional — include only when the "why" isn't obvious from the subject
-- No Co-Authored-By or attribution footers — commits are from the user's account
+### 3b. Handle the response
 
-3. Confirm success with `git status` before moving to the next group
+**'commit'** (or clear equivalent):
+1. Run the commit using a heredoc:
+   ```
+   git commit -m "$(cat <<'EOF'
+   feat(auth): add JWT middleware [#123]
+   EOF
+   )"
+   ```
+2. Show `git log --oneline -1`
+3. Immediately stage the next group (go to 3a for the next group)
 
-### 6. Summary
+**'edit'**: Ask for the new message. Update it, re-show the group prompt, and wait for another reply.
 
-After walking through all groups, show:
-- Commits created (`git log --oneline` for the new commits)
-- Any skipped or remaining uncommitted files
-- Do NOT push unless the user explicitly asks
+**'skip'**: Run `git restore --staged .`. Note the files as skipped. Immediately stage the next group.
+
+**Any question or discussion**: Answer it, then re-show the current group prompt without advancing.
+
+### 3c. End of groups
+
+After the last group is committed or skipped, go to Phase 4.
+
+## Phase 4 — Summary
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Session complete
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Committed:
+  abc1234 chore(config): add eslint configuration
+  def5678 feat(auth): add JWT middleware
+
+Skipped / uncommitted:
+  · src/routes/user.ts
+  · src/models/user.ts
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+## Rules
+
+- Never commit without the user saying 'commit' (or a clear equivalent) for that specific group.
+- Never use `--no-verify`.
+- Never `git push`.
+- Never amend a previous commit unless the user explicitly requests it.
+- Always clear the staging area with `git restore --staged .` before staging a new group.
+- If you make any changes to a file during the review loop (fixes, improvements, lint corrections), immediately re-stage the affected files with `git add <files>` so the staged diff stays current before the user commits.
