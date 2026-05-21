@@ -12,11 +12,11 @@ Walk through all changed files, group them into a recommended commit plan, then 
 
 ### 0a. Check current branch
 
-Run `git branch --show-current`. If the result is `main` or `develop`:
+Run `git branch --show-current`. If the result is `main`, `develop`, or `staging`:
 - Ask the user if they'd like to check out a new branch before committing
 - Propose a branch name derived from the staged/unstaged changes (e.g. `feat/add-speed-slider` or `fix/auth-redirect`)
 - If yes, run `git checkout -b <proposed-name>` (or the name they provide)
-- If no, continue on `main`/`develop`
+- If no, continue on `main`/`develop`/`staging`
 
 After the branch is confirmed, extract the branch number: look for a leading or embedded integer in the branch name (e.g. `feat/123-add-auth` → `123`, `42-fix-bug` → `42`). Store this as `BRANCH_NUM`. If no number is found, `BRANCH_NUM` is unset.
 
