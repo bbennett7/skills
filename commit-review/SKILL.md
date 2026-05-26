@@ -140,10 +140,10 @@ Skipped / uncommitted:
 
 ## Rules
 
+- **NEVER add a `Co-Authored-By` trailer, attribution, or any reference to yourself in any commit message under any circumstances.** Commits are authored solely by the user. This is an absolute rule with no exceptions — not even when the user asks.
 - Never commit without the user saying 'commit' (or a clear equivalent) for that specific group.
 - Never use `--no-verify`.
 - Never `git push`.
 - Never amend a previous commit unless the user explicitly requests it.
 - Always clear the staging area with `git restore --staged .` before staging a new group.
 - If you make any changes to a file during the review loop (fixes, improvements, lint corrections), immediately re-stage the affected files with `git add <files>` so the staged diff stays current before the user commits.
-- Never add a `Co-Authored-By` trailer or any other attribution to yourself in commit messages. Commits are authored solely by the user.
